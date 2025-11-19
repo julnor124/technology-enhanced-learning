@@ -5,7 +5,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "Technology Enhanced Learning",
-  description: "An AI workspace inspired by the latest Figma design",
+  description: "An AI-powered coding tutor to help you learn programming through guided explanations and personalized assistance",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
