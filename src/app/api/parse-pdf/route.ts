@@ -2,6 +2,40 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+// Polyfill DOMMatrix for serverless environments (required by pdf-parse)
+if (typeof globalThis.DOMMatrix === "undefined") {
+  // @ts-ignore - Simple DOMMatrix polyfill for Node.js
+  globalThis.DOMMatrix = class DOMMatrix {
+    constructor(init?: string | number[]) {
+      if (typeof init === "string") {
+        // Parse matrix string (simplified)
+        const values = init.match(/matrix\(([^)]+)\)/)?.[1]?.split(/\s*,\s*/) || [];
+        this.a = parseFloat(values[0] || "1");
+        this.b = parseFloat(values[1] || "0");
+        this.c = parseFloat(values[2] || "0");
+        this.d = parseFloat(values[3] || "1");
+        this.e = parseFloat(values[4] || "0");
+        this.f = parseFloat(values[5] || "0");
+      } else if (Array.isArray(init)) {
+        [this.a, this.b, this.c, this.d, this.e, this.f] = init;
+      } else {
+        this.a = 1;
+        this.b = 0;
+        this.c = 0;
+        this.d = 1;
+        this.e = 0;
+        this.f = 0;
+      }
+    }
+    a: number = 1;
+    b: number = 0;
+    c: number = 0;
+    d: number = 1;
+    e: number = 0;
+    f: number = 0;
+  };
+}
+
 export async function POST(request: NextRequest) {
   console.log("[Parse PDF API] Request received");
 
