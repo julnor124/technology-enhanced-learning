@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
 
     // Parse PDF using pdf-parse v2 class-based API
     console.log("[Parse PDF API] Parsing PDF with pdf-parse...");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // @ts-ignore - pdf-parse is a CommonJS module that needs require()
+    // eslint-disable-next-line
     const { PDFParse } = require("pdf-parse");
     const parser = new PDFParse({ data: buffer });
     await parser.load();
