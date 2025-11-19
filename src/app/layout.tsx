@@ -2,14 +2,14 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Prompt Placement A/B Test",
-  description: "Test where prompts perform best",
+  title: "Technology Enhanced Learning",
+  description: "An AI workspace inspired by the latest Figma design",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-neutral-50 text-neutral-900">{children}</body>
+      <body className="min-h-screen bg-background text-foreground antialiased">{children}</body>
     </html>
   );
 }
