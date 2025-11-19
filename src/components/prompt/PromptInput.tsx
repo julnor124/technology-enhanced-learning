@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { Send, Sparkles, RefreshCw } from "lucide-react";
 
 import { ModeSelector } from "@/components/prompt/ModeSelector";
+import { LevelSelector } from "@/components/prompt/LevelSelector";
 import { HighlightedTextarea } from "@/components/prompt/HighlightedTextarea";
-import type { ModeType } from "@/components/prompt/types";
+import type { ModeType, LevelType } from "@/components/prompt/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -14,23 +15,97 @@ interface PromptInputProps {
   onChange: (value: string) => void;
   selectedMode: ModeType;
   onModeChange: (mode: ModeType) => void;
+  selectedLevel: LevelType;
+  onLevelChange: (level: LevelType) => void;
   uploadedTask: string;
 }
 
-export function PromptInput({ value, onChange, selectedMode, onModeChange, uploadedTask }: PromptInputProps) {
-  const [shouldBlink, setShouldBlink] = useState(false);
+type TutorResult = {
+  conceptSummary: string;
+  misconceptionCheck: string;
+  hints: string[];
+  nextStepQuestion: string;
+};
 
-  const handleSubmit = () => {
-    if (value.trim() && selectedMode) {
-      console.log("Submitting prompt:", value, "Mode:", selectedMode);
-      // Placeholder for future integration
+type TutorHistoryItem = {
+  id: string;
+  question: string;
+  response: TutorResult;
+  timestamp: Date;
+};
+
+export function PromptInput({ value, onChange, selectedMode, onModeChange, selectedLevel, onLevelChange, uploadedTask }: PromptInputProps) {
+  const [shouldBlink, setShouldBlink] = useState(false);
+  const [tutorHistory, setTutorHistory] = useState<TutorHistoryItem[]>([]);
+  const [tutorError, setTutorError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [promptRefreshKey, setPromptRefreshKey] = useState(0);
+  const [suggestedPrompts, setSuggestedPrompts] = useState<string[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
+  const handleSubmit = async () => {
+    if (value.trim() && selectedMode && selectedLevel) {
+      console.log("Submitting prompt:", value, "Mode:", selectedMode, "Level:", selectedLevel);
+
+      setTutorError(null);
+      setIsSubmitting(true);
+      try {
+        const response = await fetch("/api/tutor", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            question: value,
+            mode: selectedMode,
+            level: selectedLevel,
+            topic: selectedMode === "coding help" ? "Programming" : selectedMode === "theory" ? "Computer Science Theory" : "Debugging",
+            language: "General",
+            uploadedTask: uploadedTask || undefined,
+          }),
+        });
+
+        console.log("Tutor API response status:", response.status);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("Tutor API error:", errorData);
+          if (errorData.details) {
+            console.error("Error details:", errorData.details);
+            setTutorError(errorData.details);
+          } else {
+            setTutorError(errorData.error ?? "Tutor is unavailable right now.");
+          }
+          return;
+        }
+
+        const data = await response.json();
+        console.log("Tutor API success:", data);
+        
+        // Add to history
+        const historyItem: TutorHistoryItem = {
+          id: Date.now().toString(),
+          question: value,
+          response: data.result,
+          timestamp: new Date(),
+        };
+        setTutorHistory((prev) => [historyItem, ...prev]);
+        
+        // Clear the input field after successful submission
+        onChange("");
+      } catch (error) {
+        console.error("Failed to call tutor API:", error);
+        setTutorError("Failed to reach the tutor service. Check your connection and try again.");
+      } finally {
+        setIsSubmitting(false);
+      }
     } else {
       triggerBlink();
     }
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!selectedMode) {
+    if (!selectedMode || !selectedLevel) {
       triggerBlink();
       return;
     }
@@ -42,7 +117,7 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, uploa
   };
 
   const handleTextareaClick = () => {
-    if (!selectedMode) triggerBlink();
+    if (!selectedMode || !selectedLevel) triggerBlink();
   };
 
   const triggerBlink = () => {
@@ -51,15 +126,117 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, uploa
   };
 
   useEffect(() => {
-    if (!selectedMode && value) triggerBlink();
+    if ((!selectedMode || !selectedLevel) && value) triggerBlink();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, selectedMode]);
+  }, [value, selectedMode, selectedLevel]);
 
-  const suggestedPrompts = selectedMode ? generateSuggestedPrompts(selectedMode, uploadedTask) : [];
+  // Load initial suggestions when mode changes
+  useEffect(() => {
+    if (selectedMode) {
+      loadSuggestions();
+    } else {
+      setSuggestedPrompts([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMode, uploadedTask]);
+
+  const loadSuggestions = async () => {
+    if (!selectedMode) return;
+
+    setIsLoadingSuggestions(true);
+    try {
+      const response = await fetch("/api/suggestions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: selectedMode,
+          uploadedTask: uploadedTask || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to load suggestions, using fallback");
+        // Fallback to static suggestions
+        setSuggestedPrompts(generateSuggestedPrompts(selectedMode, uploadedTask, promptRefreshKey));
+        return;
+      }
+
+      const data = await response.json();
+      if (data.suggestions && Array.isArray(data.suggestions)) {
+        setSuggestedPrompts(data.suggestions);
+      } else {
+        // Fallback to static suggestions
+        setSuggestedPrompts(generateSuggestedPrompts(selectedMode, uploadedTask, promptRefreshKey));
+      }
+    } catch (error) {
+      console.error("Error loading suggestions, using fallback:", error);
+      // Fallback to static suggestions
+      setSuggestedPrompts(generateSuggestedPrompts(selectedMode, uploadedTask, promptRefreshKey));
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
+  const handleRefreshPrompts = () => {
+    setPromptRefreshKey((prev) => prev + 1);
+    loadSuggestions();
+  };
 
   return (
     <div className="space-y-6">
-      <div className="relative rounded-2xl border bg-white p-6 shadow-sm">
+      {tutorError && (
+        <Card className="border-destructive/30 dark:border-destructive/40 bg-destructive/5 dark:bg-destructive/10 p-4 text-sm text-destructive">
+          {tutorError}
+        </Card>
+      )}
+
+      {/* History Section - Scrollable */}
+      {tutorHistory.length > 0 && (
+        <div className="max-h-[400px] overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+
+          <div className="space-y-4">
+            {tutorHistory.map((item) => (
+              <Card key={item.id} className="border-primary/30 dark:border-primary/40 bg-primary/5 dark:bg-primary/10 p-5">
+                <div className="mb-3 border-b border-primary/20 pb-2">
+                  <p className="text-xs font-medium text-primary/70">Your Question:</p>
+                  <p className="text-sm font-medium text-foreground">{item.question}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {item.timestamp.toLocaleTimeString()}
+                  </p>
+                </div>
+
+                <div className="mb-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Concept Summary</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.response.conceptSummary}</p>
+                </div>
+
+                <div className="mb-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Misconception Check</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.response.misconceptionCheck}</p>
+                </div>
+
+                <div className="mb-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Hints</h3>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+                    {item.response.hints.map((hint, index) => (
+                      <li key={`${hint}-${index}`}>{hint}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Next Step</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.response.nextStepQuestion}</p>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
         <div onClick={handleTextareaClick}>
           <HighlightedTextarea
             value={value}
@@ -75,25 +252,42 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, uploa
         </div>
 
         <div className="mt-4 flex items-center justify-between border-t pt-4">
-          <ModeSelector selectedMode={selectedMode} onModeChange={onModeChange} shouldBlink={shouldBlink} />
-          <Button onClick={handleSubmit} disabled={!value.trim() || !selectedMode} className="gap-2">
+          <div className="flex items-center gap-3">
+            <ModeSelector selectedMode={selectedMode} onModeChange={onModeChange} shouldBlink={shouldBlink && !selectedMode} />
+            <LevelSelector selectedLevel={selectedLevel} onLevelChange={onLevelChange} shouldBlink={false} />
+          </div>
+          <Button onClick={handleSubmit} disabled={!value.trim() || !selectedMode || !selectedLevel || isSubmitting} className="gap-2">
             <Send className="h-4 w-4" />
-            Submit
+            {isSubmitting ? "Thinking..." : "Submit"}
           </Button>
         </div>
       </div>
 
       {suggestedPrompts.length > 0 && (
         <div>
-          <div className="mb-3 flex items-center gap-2 text-muted-foreground">
-            <Sparkles className="h-4 w-4" />
-            <span className="text-sm font-medium">Suggested prompts for {selectedMode} mode</span>
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Sparkles className="h-4 w-4" />
+              <span className="text-sm font-medium">
+                {uploadedTask ? "Task-specific prompts" : `Suggested prompts for ${selectedMode} mode`}
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefreshPrompts}
+              disabled={isLoadingSuggestions}
+              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoadingSuggestions ? "animate-spin" : ""}`} />
+              <span>{isLoadingSuggestions ? "Loading..." : "New suggestions"}</span>
+            </Button>
           </div>
           <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-2">
             {suggestedPrompts.map((suggestion, index) => (
               <Card
                 key={`${suggestion}-${index}`}
-                className="min-w-[320px] flex-shrink-0 cursor-pointer border-muted/50 p-4 transition-colors hover:bg-muted/30"
+                className="min-w-[320px] flex-shrink-0 cursor-pointer border-muted/50 dark:border-gray-700 p-4 transition-colors hover:bg-muted/30 dark:hover:bg-gray-800"
                 onClick={() => onChange(suggestion)}
               >
                 <p className="text-sm text-foreground/80">{suggestion}</p>
@@ -106,41 +300,98 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, uploa
   );
 }
 
-function generateSuggestedPrompts(mode: ModeType, task: string): string[] {
+function generateSuggestedPrompts(mode: ModeType, task: string, refreshKey: number = 0): string[] {
   const hasTask = Boolean(task?.trim());
   const taskPreview = hasTask ? `${task.substring(0, 100)}${task.length > 100 ? "…" : ""}` : "";
 
+  // Use refreshKey as a seed to select different prompt variations
+  const seed = refreshKey % 3;
+
   if (mode === "debugging") {
     if (hasTask) {
-      return [
-        `Help me debug this issue: ${taskPreview}`,
-        "What's causing the error in this task and how can I fix it?",
-        "Walk me through debugging this step by step",
+      const variations = [
+        [
+          `Help me debug this issue: ${taskPreview}`,
+          "What's causing the error in this task and how can I fix it?",
+          "Walk me through debugging this step by step",
+        ],
+        [
+          `I'm stuck debugging: ${taskPreview}`,
+          "Can you help me understand what's wrong with this task?",
+          "Guide me through finding and fixing the bug",
+        ],
+        [
+          `Debugging help needed for: ${taskPreview}`,
+          "What error patterns should I look for in this code?",
+          "Help me systematically troubleshoot this issue",
+        ],
       ];
+      return variations[seed] || variations[0];
     }
-    return ["Help me identify the bug in my code", "Explain why this error is occurring", "What debugging steps should I follow?"];
+    const variations = [
+      ["Help me identify the bug in my code", "Explain why this error is occurring", "What debugging steps should I follow?"],
+      ["What's wrong with my code?", "How do I find the source of this error?", "Can you guide me through debugging this?"],
+      ["I need help debugging", "What tools and techniques should I use?", "Walk me through the debugging process"],
+    ];
+    return variations[seed] || variations[0];
   }
 
   if (mode === "theory") {
     if (hasTask) {
-      return [
-        `Explain the theory behind: ${taskPreview}`,
-        "What are the core concepts I need to understand for this task?",
-        "Break down the theoretical principles involved",
+      const variations = [
+        [
+          `Explain the theory behind: ${taskPreview}`,
+          "What are the core concepts I need to understand for this task?",
+          "Break down the theoretical principles involved",
+        ],
+        [
+          `What theory applies to: ${taskPreview}`,
+          "Help me understand the fundamental concepts needed",
+          "Explain the underlying principles for this task",
+        ],
+        [
+          `Theoretical explanation for: ${taskPreview}`,
+          "What concepts should I study to understand this?",
+          "Break down the theory step by step",
+        ],
       ];
+      return variations[seed] || variations[0];
     }
-    return ["Explain the fundamental concepts behind this topic", "What are the theoretical principles I should know?", "Help me understand the underlying theory"];
+    const variations = [
+      ["Explain the fundamental concepts behind this topic", "What are the theoretical principles I should know?", "Help me understand the underlying theory"],
+      ["What's the theory behind this?", "Explain the core concepts", "Help me grasp the fundamental principles"],
+      ["I want to understand the theory", "What concepts are important here?", "Break down the theoretical foundation"],
+    ];
+    return variations[seed] || variations[0];
   }
 
   if (mode === "coding help") {
     if (hasTask) {
-      return [
-        `Help me implement: ${taskPreview}`,
-        "What's the best approach to code this task?",
-        "Show me how to write code for this requirement",
+      const variations = [
+        [
+          `Help me implement: ${taskPreview}`,
+          "What's the best approach to code this task?",
+          "Show me how to write code for this requirement",
+        ],
+        [
+          `How do I code: ${taskPreview}`,
+          "What's the best way to implement this task?",
+          "Guide me through writing the code for this",
+        ],
+        [
+          `I need to code: ${taskPreview}`,
+          "What coding patterns should I use for this?",
+          "Help me structure the code for this requirement",
+        ],
       ];
+      return variations[seed] || variations[0];
     }
-    return ["Help me write code for this feature", "What's the best way to implement this?", "Show me example code for this problem"];
+    const variations = [
+      ["Help me write code for this feature", "What's the best way to implement this?", "Show me example code for this problem"],
+      ["How should I code this?", "What's the best implementation approach?", "Guide me through writing this code"],
+      ["I need coding help", "What's the right way to implement this?", "Help me write the code step by step"],
+    ];
+    return variations[seed] || variations[0];
   }
 
   return [];
