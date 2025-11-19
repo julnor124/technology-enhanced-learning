@@ -60,17 +60,25 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Parse PDF using pdf-parse v2 class-based API
+    // Parse PDF using pdf-parse v1 (simple function API, serverless-friendly)
     console.log("[Parse PDF API] Parsing PDF with pdf-parse...");
     // @ts-ignore - pdf-parse is a CommonJS module that needs require()
     // eslint-disable-next-line
-    const { PDFParse } = require("pdf-parse");
-    const parser = new PDFParse({ data: buffer });
-    await parser.load();
-    const pdfData = await parser.getText();
+    const pdfParse = require("pdf-parse");
+    
+    // Simple function API - works reliably in serverless environments
+    // pdfParse returns a promise that resolves to { text, info, metadata, numpages }
+    const pdfData = await pdfParse(buffer);
+    
+    console.log("[Parse PDF API] PDF parsed, structure:", {
+      hasText: !!pdfData.text,
+      textLength: pdfData.text?.length,
+      numpages: pdfData.numpages,
+      keys: Object.keys(pdfData)
+    });
 
-    console.log("[Parse PDF API] Extraction complete, text length:", pdfData.text.length);
-    console.log("[Parse PDF API] PDF info - pages:", pdfData.numpages);
+    console.log("[Parse PDF API] Extraction complete, text length:", pdfData.text?.length || 0);
+    console.log("[Parse PDF API] PDF info - pages:", pdfData.numpages || "unknown");
 
     if (!pdfData.text || !pdfData.text.trim()) {
       return NextResponse.json(
