@@ -15,7 +15,7 @@ interface HighlightedTextareaProps {
   disabled?: boolean;
 }
 
-export const HighlightedTextarea = forwardRef<HTMLTextAreaElement, HighlightedTextareaProps>(
+export const HighlightedTextarea = forwardRef<HTMLTextAreaElement | null, HighlightedTextareaProps>(
   ({ value, onChange, onKeyDown, placeholder, disabled = false }: HighlightedTextareaProps, ref) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     useImperativeHandle(ref, () => textareaRef.current, []);
