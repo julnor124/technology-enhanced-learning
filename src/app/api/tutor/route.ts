@@ -3,10 +3,29 @@ import OpenAI from "openai";
 
 import { prisma } from "@/lib/prisma";
 
+type ChatRole = "user" | "assistant";
+
 type ChatHistoryMessage = {
-  role: "user" | "assistant";
+  role: ChatRole;
   content: string;
 };
+
+type StoredHistoryMessage = {
+  role: string;
+  content: string;
+};
+
+function sanitizeHistory(messages: StoredHistoryMessage[]): ChatHistoryMessage[] {
+  return messages
+    .map((message) => {
+      if (!message || typeof message.content !== "string") {
+        return null;
+      }
+      const role: ChatRole = message.role === "assistant" ? "assistant" : "user";
+      return { role, content: message.content };
+    })
+    .filter((message): message is ChatHistoryMessage => Boolean(message));
+}
 
 function getSystemPrompt(mode?: "debugging" | "theory" | "coding help"): string {
   const basePrompt = `
@@ -197,7 +216,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let conversationHistory: ChatHistoryMessage[] = [];
+  let conversationHistory: StoredHistoryMessage[] = [];
   try {
     const existingConversation = await prisma.conversation.findUnique({
       where: { sessionId: body.sessionId },
@@ -210,7 +229,7 @@ export async function POST(request: NextRequest) {
   }
 
   const MAX_HISTORY_MESSAGES = 20;
-  const trimmedHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+  const trimmedHistory: ChatHistoryMessage[] = sanitizeHistory(conversationHistory).slice(-MAX_HISTORY_MESSAGES);
 
   const modePrompt = getSystemPrompt(body.mode);
   const levelInstructions = getLevelInstructions(body.level);
@@ -300,10 +319,13 @@ export async function POST(request: NextRequest) {
 
     const assistantMessage = rawText;
 
+    const userHistoryMessage: ChatHistoryMessage = { role: "user", content: userPrompt };
+    const assistantHistoryMessage: ChatHistoryMessage = { role: "assistant", content: assistantMessage };
+
     const updatedHistory: ChatHistoryMessage[] = [
       ...trimmedHistory,
-      { role: "user", content: userPrompt },
-      { role: "assistant", content: assistantMessage },
+      userHistoryMessage,
+      assistantHistoryMessage,
     ].slice(-MAX_HISTORY_MESSAGES);
 
     try {
