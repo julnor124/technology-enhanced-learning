@@ -22,6 +22,8 @@ export default function Home() {
   const [selectedMode, setSelectedMode] = useState<ModeType>(null);
   const [selectedLevel, setSelectedLevel] = useState<LevelType>(null);
   const [uploadedTask, setUploadedTask] = useState("");
+  const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState<string | null>(null);
+  const [sessionId] = useState(() => crypto.randomUUID());
 
   return (
     <main className="flex min-h-screen bg-muted/30 dark:bg-muted/20">
@@ -45,47 +47,42 @@ export default function Home() {
                     <DialogTitle>About PromptMaster AI Workspace</DialogTitle>
                     <DialogDescription className="pt-4 space-y-3">
                       <p>
-                        PromptMaster AI Workspace is an AI-powered coding tutor designed to help you learn programming
-                        concepts through guided explanations and personalized assistance.
+                        PromptMaster is your coaching layer for coding assignments. It keeps the conversation focused on
+                        learning by guiding you with prompts, hints, and follow-up ideas instead of full solutions.
                       </p>
                       <div className="space-y-2">
                         <p className="font-semibold text-foreground">How it works:</p>
                         <ul className="list-disc list-inside space-y-1 text-sm">
                           <li>
-                            <strong>Choose a Mode:</strong> Select from Debugging, Theory, or Coding Help to get
-                            tailored guidance
+                            <strong>Pick a mode & level:</strong> Debugging, Theory, or Coding Help + Beginner–Expert to tune the tutor’s tone.
                           </li>
                           <li>
-                            <strong>Select Your Level:</strong> Pick Beginner, Intermediate, Advanced, or Expert to
-                            match your experience
+                            <strong>Upload your assignment:</strong> Add a PDF/text brief so every answer references your task.
                           </li>
                           <li>
-                            <strong>Upload Your Assignment:</strong> Optionally upload your task file (PDF or text) to get
-                            context-aware help
+                            <strong>Use starter prompts:</strong> Quick “Starter” or “Task Starter” questions to kick off the chat in the right context.
                           </li>
                           <li>
-                            <strong>Ask Questions:</strong> Get explanations, hints, and guidance without receiving
-                            complete solutions
+                            <strong>Ask & iterate:</strong> The tutor replies in structured steps—concept summary, misconception check, hints, next question.
                           </li>
                         </ul>
                       </div>
                       <div className="space-y-2">
-                        <p className="font-semibold text-foreground">Additional features:</p>
+                        <p className="font-semibold text-foreground">Why it’s different:</p>
                         <ul className="list-disc list-inside space-y-1 text-sm">
                           <li>
-                            <strong>Suggested Prompts:</strong> Get AI-generated question suggestions tailored to your mode and assignment
+                            <strong>Next prompt ideas:</strong> After every question, you get three AI follow-up questions tailored to your conversation. Click one to paste it instantly.
                           </li>
                           <li>
-                            <strong>Writing Tips:</strong> Real-time guidance on how to formulate better questions as you type
+                            <strong>Conversation memory:</strong> The session remembers the last few exchanges (stored in Vercel Postgres) so the tutor keeps your context straight.
                           </li>
                           <li>
-                            <strong>Conversation History:</strong> View all your previous questions and answers in a scrollable history
+                            <strong>PDF-aware answers:</strong> If you upload a task, the assistant is instructed to reference that text every time.
                           </li>
                         </ul>
                       </div>
                       <p className="text-sm">
-                        The AI tutor encourages self-discovery by providing hints, explaining concepts, and guiding you
-                        through the learning process step by step.
+                        PromptMaster is here to help you reason about code, not just copy it. Use the prompts, follow-ups, and task context to build a deeper understanding one question at a time.
                       </p>
                     </DialogDescription>
                   </DialogHeader>
@@ -109,12 +106,21 @@ export default function Home() {
               selectedLevel={selectedLevel}
               onLevelChange={setSelectedLevel}
               uploadedTask={uploadedTask}
+              sessionId={sessionId}
+              onPromptSubmit={(question) => setLastSubmittedPrompt(question)}
             />
           </div>
         </section>
       </div>
 
-      <RealTimeSuggestions currentPrompt={currentPrompt} uploadedTask={uploadedTask} selectedMode={selectedMode} />
+      <RealTimeSuggestions
+        currentPrompt={currentPrompt}
+        uploadedTask={uploadedTask}
+        selectedMode={selectedMode}
+        lastSubmittedPrompt={lastSubmittedPrompt}
+        sessionId={sessionId}
+        onApplySuggestion={(text) => setCurrentPrompt(text)}
+      />
     </main>
   );
 }

@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
-function getSystemPrompt(mode?: "debugging" | "theory" | "coding help", level?: "beginner" | "intermediate" | "advanced" | "expert"): string {
+import { prisma } from "@/lib/prisma";
+
+type ChatHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+function getSystemPrompt(mode?: "debugging" | "theory" | "coding help"): string {
   const basePrompt = `
 You are Code Coach, a patient senior engineer who helps learners reason about code.
 Objectives:
@@ -124,6 +131,7 @@ type TutorRequest = {
   mode?: "debugging" | "theory" | "coding help";
   level?: "beginner" | "intermediate" | "advanced" | "expert";
   uploadedTask?: string;
+  sessionId?: string;
 };
 
 export const runtime = "nodejs";
@@ -181,6 +189,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (!body?.sessionId) {
+    console.error("[Tutor API] Missing sessionId");
+    return NextResponse.json(
+      { error: "Missing sessionId. Provide a sessionId to continue." },
+      { status: 400 },
+    );
+  }
+
+  let conversationHistory: ChatHistoryMessage[] = [];
+  try {
+    const existingConversation = await prisma.conversation.findUnique({
+      where: { sessionId: body.sessionId },
+    });
+    if (existingConversation?.messages) {
+      conversationHistory = existingConversation.messages as ChatHistoryMessage[];
+    }
+  } catch (error) {
+    console.error("[Tutor API] Failed to load conversation history:", error);
+  }
+
+  const MAX_HISTORY_MESSAGES = 20;
+  const trimmedHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+
   const modePrompt = getSystemPrompt(body.mode);
   const levelInstructions = getLevelInstructions(body.level);
   const systemPrompt = levelInstructions 
@@ -219,15 +250,19 @@ export async function POST(request: NextRequest) {
 
   try {
     console.log("[Tutor API] Calling OpenAI API...", { mode: body.mode, temperature: config.temperature });
-    const response = await openai.chat.completions.create({
-      model,
-      temperature: config.temperature,
-      max_completion_tokens: config.maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    });
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: config.temperature,
+    max_completion_tokens: config.maxTokens,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...trimmedHistory.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      { role: "user", content: userPrompt },
+    ],
+  });
 
     console.log("[Tutor API] OpenAI response received");
     console.log("[Tutor API] Response structure:", JSON.stringify(response, null, 2));
@@ -262,6 +297,24 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[Tutor API] Returning structured response");
+
+    const assistantMessage = rawText;
+
+    const updatedHistory: ChatHistoryMessage[] = [
+      ...trimmedHistory,
+      { role: "user", content: userPrompt },
+      { role: "assistant", content: assistantMessage },
+    ].slice(-MAX_HISTORY_MESSAGES);
+
+    try {
+      await prisma.conversation.upsert({
+        where: { sessionId: body.sessionId },
+        update: { messages: updatedHistory },
+        create: { sessionId: body.sessionId, messages: updatedHistory },
+      });
+    } catch (error) {
+      console.error("[Tutor API] Failed to save conversation history:", error);
+    }
     return NextResponse.json({ result: structured });
   } catch (error) {
     console.error("[Tutor API] Error:", error);

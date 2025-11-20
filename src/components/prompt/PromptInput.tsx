@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Send, Sparkles, RefreshCw } from "lucide-react";
 
 import { ModeSelector } from "@/components/prompt/ModeSelector";
@@ -18,6 +18,8 @@ interface PromptInputProps {
   selectedLevel: LevelType;
   onLevelChange: (level: LevelType) => void;
   uploadedTask: string;
+  sessionId: string;
+  onPromptSubmit?: (question: string) => void;
 }
 
 type TutorResult = {
@@ -34,7 +36,17 @@ type TutorHistoryItem = {
   timestamp: Date;
 };
 
-export function PromptInput({ value, onChange, selectedMode, onModeChange, selectedLevel, onLevelChange, uploadedTask }: PromptInputProps) {
+export function PromptInput({
+  value,
+  onChange,
+  selectedMode,
+  onModeChange,
+  selectedLevel,
+  onLevelChange,
+  uploadedTask,
+  sessionId,
+  onPromptSubmit,
+}: PromptInputProps) {
   const [shouldBlink, setShouldBlink] = useState(false);
   const [tutorHistory, setTutorHistory] = useState<TutorHistoryItem[]>([]);
   const [tutorError, setTutorError] = useState<string | null>(null);
@@ -42,9 +54,12 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
   const [promptRefreshKey, setPromptRefreshKey] = useState(0);
   const [suggestedPrompts, setSuggestedPrompts] = useState<string[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const latestEntryRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = async () => {
-    if (value.trim() && selectedMode && selectedLevel) {
+    if (value.trim() && selectedMode && sessionId) {
       console.log("Submitting prompt:", value, "Mode:", selectedMode, "Level:", selectedLevel);
 
       setTutorError(null);
@@ -62,6 +77,7 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
             topic: selectedMode === "coding help" ? "Programming" : selectedMode === "theory" ? "Computer Science Theory" : "Debugging",
             language: "General",
             uploadedTask: uploadedTask || undefined,
+            sessionId,
           }),
         });
 
@@ -89,10 +105,18 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
           response: data.result,
           timestamp: new Date(),
         };
-        setTutorHistory((prev) => [historyItem, ...prev]);
+        setTutorHistory((prev) => [...prev, historyItem]);
         
-        // Clear the input field after successful submission
+        onPromptSubmit?.(value);
+
+        // Clear the input field after successful submission and place caret at the start
         onChange("");
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(0, 0);
+          }
+        });
       } catch (error) {
         console.error("Failed to call tutor API:", error);
         setTutorError("Failed to reach the tutor service. Check your connection and try again.");
@@ -100,12 +124,14 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
         setIsSubmitting(false);
       }
     } else {
-      triggerBlink();
+      if (!selectedMode) {
+        triggerBlink();
+      }
     }
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!selectedMode || !selectedLevel) {
+    if (!selectedMode) {
       triggerBlink();
       return;
     }
@@ -117,7 +143,7 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
   };
 
   const handleTextareaClick = () => {
-    if (!selectedMode || !selectedLevel) triggerBlink();
+    if (!selectedMode) triggerBlink();
   };
 
   const triggerBlink = () => {
@@ -126,9 +152,15 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
   };
 
   useEffect(() => {
-    if ((!selectedMode || !selectedLevel) && value) triggerBlink();
+    if (!selectedMode && value) triggerBlink();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, selectedMode, selectedLevel]);
+  }, [value, selectedMode]);
+
+  useEffect(() => {
+    if (latestEntryRef.current) {
+      latestEntryRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [tutorHistory]);
 
   // Load initial suggestions when mode changes
   useEffect(() => {
@@ -194,44 +226,59 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
 
       {/* History Section - Scrollable */}
       {tutorHistory.length > 0 && (
-        <div className="max-h-[400px] overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-
-          <div className="space-y-4">
-            {tutorHistory.map((item) => (
-              <Card key={item.id} className="border-primary/30 dark:border-primary/40 bg-primary/5 dark:bg-primary/10 p-5">
-                <div className="mb-3 border-b border-primary/20 pb-2">
-                  <p className="text-xs font-medium text-primary/70">Your Question:</p>
-                  <p className="text-sm font-medium text-foreground">{item.question}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {item.timestamp.toLocaleTimeString()}
-                  </p>
+        <div
+          ref={historyRef}
+          className="max-h-[400px] overflow-y-auto rounded-lg"
+        >
+          <div className="space-y-5">
+            {tutorHistory.map((item, index) => {
+              const isLatest = index === tutorHistory.length - 1;
+              return (
+                <div
+                  key={item.id}
+                  ref={isLatest ? latestEntryRef : undefined}
+                  className="space-y-4 rounded-2xl border border-border/60 bg-white/90 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
+                >
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 dark:border-primary/40 dark:bg-primary/10">
+                  <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-primary/70">
+                    <span>Student Question</span>
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {item.timestamp.toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-foreground">{item.question}</p>
                 </div>
 
-                <div className="mb-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Concept Summary</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.response.conceptSummary}</p>
+                <div className="space-y-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 dark:border-emerald-500/40 dark:bg-emerald-500/10">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+                    Tutor Response
+                  </h3>
+                  <div className="space-y-3">
+                    <section>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Concept Summary</p>
+                      <p className="mt-1 text-sm text-foreground/80">{item.response.conceptSummary}</p>
+                    </section>
+                    <section>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Misconception Check</p>
+                      <p className="mt-1 text-sm text-foreground/80">{item.response.misconceptionCheck}</p>
+                    </section>
+                    <section>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hints</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-foreground/80">
+                        {item.response.hints.map((hint, index) => (
+                          <li key={`${hint}-${index}`}>{hint}</li>
+                        ))}
+                      </ul>
+                    </section>
+                    <section>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Next Step</p>
+                      <p className="mt-1 text-sm text-foreground/80">{item.response.nextStepQuestion}</p>
+                    </section>
+                  </div>
                 </div>
-
-                <div className="mb-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Misconception Check</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.response.misconceptionCheck}</p>
                 </div>
-
-                <div className="mb-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Hints</h3>
-                  <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-                    {item.response.hints.map((hint, index) => (
-                      <li key={`${hint}-${index}`}>{hint}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-primary/80">Next Step</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.response.nextStepQuestion}</p>
-                </div>
-              </Card>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -239,6 +286,7 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
       <div className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
         <div onClick={handleTextareaClick}>
           <HighlightedTextarea
+            ref={textareaRef}
             value={value}
             onChange={onChange}
             onKeyDown={handleKeyDown}
@@ -256,9 +304,20 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
             <ModeSelector selectedMode={selectedMode} onModeChange={onModeChange} shouldBlink={shouldBlink && !selectedMode} />
             <LevelSelector selectedLevel={selectedLevel} onLevelChange={onLevelChange} shouldBlink={false} />
           </div>
-          <Button onClick={handleSubmit} disabled={!value.trim() || !selectedMode || !selectedLevel || isSubmitting} className="gap-2">
-            <Send className="h-4 w-4" />
-            {isSubmitting ? "Thinking..." : "Submit"}
+          <Button onClick={handleSubmit} disabled={!sessionId || !value.trim() || !selectedMode || isSubmitting} className="gap-2">
+            <Send className={`h-4 w-4 ${isSubmitting ? "animate-pulse" : ""}`} />
+            {isSubmitting ? (
+              <span className="flex items-center gap-1">
+                <span>Thinking</span>
+                <span className="flex gap-0.5">
+                  <span className="inline-block animate-bounce [animation-delay:-0.2s]">.</span>
+                  <span className="inline-block animate-bounce [animation-delay:-0.1s]">.</span>
+                  <span className="inline-block animate-bounce">.</span>
+                </span>
+              </span>
+            ) : (
+              "Submit"
+            )}
           </Button>
         </div>
       </div>
@@ -266,11 +325,18 @@ export function PromptInput({ value, onChange, selectedMode, onModeChange, selec
       {suggestedPrompts.length > 0 && (
         <div>
           <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Sparkles className="h-4 w-4" />
-              <span className="text-sm font-medium">
-                {uploadedTask ? "Task-specific prompts" : `Suggested prompts for ${selectedMode} mode`}
-              </span>
+            <div className="text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />
+                <span className="text-sm font-medium">
+                  {uploadedTask ? "Task starter prompts" : "Starter prompts"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs">
+                {uploadedTask
+                  ? "Quick questions tailored to your uploaded assignment to kick off a new conversation quickly."
+                  : "Use these to kick off a new conversation quickly."}
+              </p>
             </div>
             <Button
               variant="ghost"

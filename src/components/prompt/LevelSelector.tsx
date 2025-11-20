@@ -40,7 +40,11 @@ export function LevelSelector({ selectedLevel, onLevelChange, shouldBlink }: Lev
   const [isOpen, setIsOpen] = useState(false);
 
   const handleLevelSelect = (level: LevelType) => {
-    onLevelChange(level);
+    if (selectedLevel === level) {
+      onLevelChange(null);
+    } else {
+      onLevelChange(level);
+    }
     setIsOpen(false);
   };
 
@@ -74,7 +78,7 @@ export function LevelSelector({ selectedLevel, onLevelChange, shouldBlink }: Lev
         onClick={() => setIsOpen((prev) => !prev)}
         type="button"
       >
-        <ChevronUp className="h-4 w-4" />
+        <ChevronUp className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
         {selectedLevel ? levels.find((level) => level.value === selectedLevel)?.label : "Select Level"}
       </Button>
     </div>

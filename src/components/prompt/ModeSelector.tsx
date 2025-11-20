@@ -57,7 +57,7 @@ export function ModeSelector({ selectedMode, onModeChange, shouldBlink }: ModeSe
         onClick={() => setIsOpen((prev) => !prev)}
         type="button"
       >
-        <ChevronUp className="h-4 w-4" />
+        <ChevronUp className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
         {selectedMode ? modes.find((mode) => mode.value === selectedMode)?.label : "Select Mode"}
       </Button>
     </div>

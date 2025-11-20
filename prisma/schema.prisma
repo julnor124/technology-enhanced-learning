@@ -1,0 +1,20 @@
+// prisma/schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  sessionId String   @unique    // some identifier from the client (cookie/localStorage)
+  messages  Json     // [{ role: "user" | "assistant", content: "..." }, ...]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sessionId])
+}
