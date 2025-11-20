@@ -15,10 +15,15 @@ interface HighlightedTextareaProps {
   disabled?: boolean;
 }
 
-export const HighlightedTextarea = forwardRef<HTMLTextAreaElement | null, HighlightedTextareaProps>(
+export const HighlightedTextarea = forwardRef<HTMLTextAreaElement, HighlightedTextareaProps>(
   ({ value, onChange, onKeyDown, placeholder, disabled = false }: HighlightedTextareaProps, ref) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    useImperativeHandle(ref, () => textareaRef.current, []);
+    useImperativeHandle(ref, () => {
+      if (!textareaRef.current) {
+        throw new Error("Textarea ref is not available");
+      }
+      return textareaRef.current;
+    }, []);
 
     return (
       <textarea
